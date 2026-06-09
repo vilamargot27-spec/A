@@ -1,7 +1,6 @@
 import streamlit as st
 import json
-from google import genai
-from google.genai import types
+import google.generativeai as genai
 
 # =====================================================================
 # 1. EL MÚSCULO MATEMÁTICO (FUNCTION CALLING)
@@ -93,12 +92,15 @@ with tab1:
         else:
             try:
                 with st.spinner("Analizando territorio y normativa del MEF..."):
-                    client = genai.Client(api_key=api_key)
-                    config = types.GenerateContentConfig(system_instruction=PROMPT_MAESTRO, temperature=0.1)
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel(
+                        model_name="gemini-1.5-pro",
+                        system_instruction=PROMPT_MAESTRO
+                    )
                     
                     mensaje = f"MODO 1. Distrito: {distrito}. Brecha actual: {brecha}%. Proyectos en la zona: {proyectos_existentes}. Genera el Informe de Planeamiento Territorial."
                     
-                    respuesta = client.models.generate_content(model="gemini-1.5-pro", contents=mensaje, config=config)
+                    respuesta = model.generate_content(mensaje)
                     st.success("¡Análisis completado!")
                     st.markdown(respuesta.text)
             except Exception as e:
@@ -127,13 +129,10 @@ with tab2:
         else:
             try:
                 with st.spinner("Consultando SIGRID, calculando VACS y redactando Ficha Técnica..."):
-                    client = genai.Client(api_key=api_key)
-                    
-                    # Configuramos Gemini CON la herramienta matemática
-                    config_tools = types.GenerateContentConfig(
-                        system_instruction=PROMPT_MAESTRO, 
-                        temperature=0.1,
-                        tools=[calcular_vacs_y_ce] # ¡Aquí le damos la calculadora!
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel(
+                        model_name="gemini-1.5-pro",
+                        system_instruction=PROMPT_MAESTRO
                     )
                     
                     # Simulamos el JSON de SIGRID
@@ -142,22 +141,32 @@ with tab2:
                       "evaluacion_peligros": [{"tipo_peligro": "Movimiento en Masa", "nivel_peligro": "Alto", "requiere_mrr": True, "mrr_sugeridas": ["Muro de contención"]}]
                     }
                     
+                    # Primero calculamos VACS
+                    flujos_om = [om_anual] * 10
+                    resultado_vacs = calcular_vacs_y_ce(inversion, flujos_om, 0.08, alumnos)
+                    
                     mensaje = f"""
                     MODO 2. 
                     JSON SIGRID: {json.dumps(json_sigrid)}
                     Inversión Inicial Social: {inversion}
-                    Flujos O&M Social: {[om_anual]*10} (10 años)
+                    Flujos O&M Social: {flujos_om} (10 años)
                     Tasa Descuento: 0.08
                     Alumnos: {alumnos}
                     
-                    Redacta los 4 módulos de la Ficha Técnica. Llama a tu herramienta para calcular el VACS y el CE.
+                    RESULTADOS DEL CÁLCULO MATEMÁTICO:
+                    - VACS Total: {resultado_vacs['vacs_total']}
+                    - Ratio Costo-Eficacia: {resultado_vacs['ratio_costo_eficacia']}
+                    
+                    Redacta los 4 módulos de la Ficha Técnica utilizando estos valores.
                     """
                     
-                    # Usamos chats.create para que el SDK maneje la llamada a la función automáticamente
-                    chat = client.chats.create(model="gemini-1.5-pro", config=config_tools)
-                    respuesta = chat.send_message(mensaje)
+                    respuesta = model.generate_content(mensaje)
                     
                     st.success("¡Ficha Técnica generada exitosamente!")
                     st.markdown(respuesta.text)
+                    
+                    # Mostrar cálculos en un expander
+                    with st.expander("📊 Ver Cálculos Matemáticos"):
+                        st.json(resultado_vacs)
             except Exception as e:
                 st.error(f"❌ Error al generar la Ficha Técnica: {str(e)}")
